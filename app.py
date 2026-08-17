@@ -91,7 +91,7 @@ if st.button("🔄 更新", type="primary"):
         if new_price is not None:
             old_price = config["history"].get(symbol, 0.0)
             
-            # 【重要】価格が「前回と異なる場合のみ」、前回の値を「過去の履歴」に移動する
+            # 価格が「前回と異なる場合のみ」、前回の値を「過去の履歴」に移動する
             if old_price != 0 and new_price != old_price:
                 config["prev_history"][symbol] = old_price
             
@@ -138,6 +138,7 @@ for item in items_to_display:
         display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
 
     # HTML/CSSによるカスタム表示（スマホ向けに最適化）
+    # コード表示(symbol)を削除し、スッキリしたデザインに調整
     st.markdown(f"""
     <div style="
         background-color: #f0f2f6;
@@ -154,12 +155,5 @@ for item in items_to_display:
         <p style="font-size: 24px; font-weight: bold; margin: 0; color: {color};">
             {display_diff}
         </p>
-        <p style="font-size: 16px; color: #888; margin-top: 5px;">({symbol})</p>
     </div>
     """, unsafe_allow_html=True)
-
-# デバッグ用情報
-with st.expander("詳細ログ"):
-    st.write("現在の履歴:", config["history"])
-    st.write("前回の履歴:", config["prev_history"])
-    st.write("銘柄リスト:", config["stocks"])
