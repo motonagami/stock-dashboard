@@ -17,13 +17,15 @@ def load_config():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                # labels が無ければ初期値をセット
                 if "labels" not in config:
                     config["labels"] = {"^N225": "日経平均株価", "^GSPC": "S&P500"}
+                if "stock_info" not in config:
+                    config["stock_info"] = {}
+                if "history" not in config:
+                    config["history"] = {}
                 return config
         except:
             pass
-    # ファイルがない、または読み取れない場合のデフォルト設定
     return {
         "indices": ["^N225", "^GSPC"],
         "stocks": [],
@@ -71,18 +73,17 @@ with st.sidebar:
     if all_tickers:
         for ticker in all_tickers:
             cols = st.columns([4, 1])
-            # labels が存在しない場合も考慮して安全に取得
             labels = st.session_state.config.get("labels", {})
-            display_name = labels.get(ticker, ticker.replace(".T", "").replace("^", ""))
-            
-            # stock_info も安全に取得
             stock_info = st.session_state.config.get("stock_info", {})
+            
+            # 表示名の決定
+            display_name = labels.get(ticker, ticker.replace(".T", "").replace("^", ""))
             if ticker in stock_info:
                 display_name = stock_info[ticker]
             
             cols[0].write(display_name)
             if cols[1].button("削除", key=f"del_{ticker}"):
-                if ticker in st.session_state.config["indices"]:
+                if ticker in st.session_state.config.get("indices", []):
                     st.session_state.config["indices"].remove(ticker)
                 else:
                     st.session_state.config["stocks"].remove(ticker)
@@ -110,13 +111,34 @@ st.write("市場が閉まっている時間は、前日の終値を表示しま�
 # 目立つ更新ボタン
 if st.button("🚀 最新の株価を更新", type="primary", use_container_width=True):
     with st.spinner("データを取得中..."):
-        for ticker in st.session_state.config.get("indices", []) + st.session_state.config.get("stocks", []):
+        indices = st.session_state.config.get("indices", [])
+        stocks = st.session_state.config.get("stocks", [])
+        all_tickers = indices + stocks
+        
+        for ticker in all_tickers:
             price, name = get_stock_data(ticker)
             if price:
-                st.session_state.config["history"][ticker] = price
-                if name and name != ticker:
-                    if ticker not in st.session_state.config.get("stock_info", {}):
+                # history[ticker] が辞書か数値かを確認しながら安全に処理
+                history_data = st.session_state.config.get("history", {}).get(ticker, {})
+                
+                if isinstance(history_data, dict):
+                    # 既に辞書形式なら、前回の価格を更新
+                    prev_price = history_data.get("price", price)
+                    st.session_state.config["history"][ticker] = {
+                        "price": price,
+                        "prev_price": prev_price
+                    }
+                else:
+                    # まだ履歴がない（数値が入っている等）場合は、辞書形式に変換して保存
+                    st.session_state.config["history"][ticker] = {
+                        "price": price,
+                        "prev_price": price
+                    }
+                
+                if ticker in stocks:
+                    if ticker not in st.session_state.config.get("stock_info", {}) or st.session_state.config["stock_info"][ticker] == ticker:
                         st.session_state.config["stock_info"][ticker] = name
+        
         save_config(st.session_state.config)
         st.rerun()
 
@@ -135,8 +157,7 @@ if st.session_state.config.get("indices") or st.session_state.config.get("stocks
         if info:
             all_items.append({"name": f"{info} ({ticker})", "symbol": ticker})
         else:
-            display_name = ticker.replace(".T", "").replace("^", "")
-            all_items.append({"name": f"{display_name}", "symbol": ticker})
+            all_items.append({"name": f"{ticker.replace('.T', '').replace('^', '')}", "symbol": ticker})
 
     num_items = len(all_items)
     cols_count = min(3, num_items)
@@ -145,9 +166,26 @@ if st.session_state.config.get("indices") or st.session_state.config.get("stocks
         cols = st.columns(cols_count)
         for j, item in enumerate(all_items[i:i+cols_count]):
             with cols[j]:
-                price = st.session_state.config.get("history", {}).get(item["symbol"])
-                if price:
-                    st.metric(label=item["name"], value=f"{price:,.2f}")
+                # historyデータを取り出す
+                h = st.session_state.config.get("history", {}).get(item["symbol"], {})
+                
+                # ここで辞書か数値かに関わらず、安全に価格を取得
+                if isinstance(h, dict):
+                    curr = h.get("price")
+                    prev = h.get("prev_price")
+                else:
+                    # もし履歴がまだ辞書になっていなかったら数値として扱う
+                    curr = h
+                    prev = None
+                
+                if curr is not None:
+                    if prev is not None and prev != curr:
+                        diff = curr - prev
+                        diff_pct = (diff / prev) * 100
+                        st.metric(label=item["name"], value=f"{curr:,.2f}")
+                        st.write(f"前回比: {diff:,.2f} ({diff_pct:+.2f}%)")
+                    else:
+                        st.metric(label=item["name"], value=f"{curr:,.2f}")
                 else:
                     st.write(f"{item['name']}")
                     st.caption("「更新」ボタンを押してください")
