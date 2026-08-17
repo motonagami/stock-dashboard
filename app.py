@@ -19,10 +19,6 @@ def load_config():
                 config = json.load(f)
                 if "labels" not in config:
                     config["labels"] = {"^N225": "日経平均株価", "^GSPC": "S&P500"}
-                if "stock_info" not in config:
-                    config["stock_info"] = {}
-                if "history" not in config:
-                    config["history"] = {}
                 return config
         except:
             pass
@@ -74,12 +70,13 @@ with st.sidebar:
         for ticker in all_tickers:
             cols = st.columns([4, 1])
             labels = st.session_state.config.get("labels", {})
-            stock_info = st.session_state.config.get("stock_info", {})
-            
-            # 表示名の決定
-            display_name = labels.get(ticker, ticker.replace(".T", "").replace("^", ""))
-            if ticker in stock_info:
-                display_name = stock_info[ticker]
+            # 銘柄情報の優先順位：1.ユーザー入力名 2.自動取得した名前 3.コードのみ
+            if ticker in st.session_state.config.get("stock_info", {}):
+                display_name = st.session_state.config["stock_info"][ticker]
+            elif ticker in labels:
+                display_name = labels[ticker]
+            else:
+                display_name = ticker.replace(".T", "").replace("^", "")
             
             cols[0].write(display_name)
             if cols[1].button("削除", key=f"del_{ticker}"):
@@ -98,6 +95,7 @@ with st.sidebar:
     if st.button("銘柄を追加"):
         if new_ticker and new_ticker not in st.session_state.config.get("indices", []) and new_ticker not in st.session_state.config.get("stocks", []):
             st.session_state.config["stocks"].append(new_ticker)
+            # 最初登録する時に、ユーザー入力を優先して保存
             st.session_state.config["stock_info"][new_ticker] = new_name if new_name else new_ticker.replace(".T", "").replace("^", "")
             save_config(st.session_state.config)
             st.rerun()
@@ -111,34 +109,21 @@ st.write("市場が閉まっている時間は、前日の終値を表示しま�
 # 目立つ更新ボタン
 if st.button("🚀 最新の株価を更新", type="primary", use_container_width=True):
     with st.spinner("データを取得中..."):
-        indices = st.session_state.config.get("indices", [])
-        stocks = st.session_state.config.get("stocks", [])
-        all_tickers = indices + stocks
-        
-        for ticker in all_tickers:
+        for ticker in st.session_state.config.get("indices", []) + st.session_state.config.get("stocks", []):
             price, name = get_stock_data(ticker)
             if price:
-                # history[ticker] が辞書か数値かを確認しながら安全に処理
                 history_data = st.session_state.config.get("history", {}).get(ticker, {})
+                prev_price = history_data.get("price", price)
                 
-                if isinstance(history_data, dict):
-                    # 既に辞書形式なら、前回の価格を更新
-                    prev_price = history_data.get("price", price)
-                    st.session_state.config["history"][ticker] = {
-                        "price": price,
-                        "prev_price": prev_price
-                    }
-                else:
-                    # まだ履歴がない（数値が入っている等）場合は、辞書形式に変換して保存
-                    st.session_state.config["history"][ticker] = {
-                        "price": price,
-                        "prev_price": price
-                    }
-                
-                if ticker in stocks:
+                st.session_state.config["history"][ticker] = {
+                    "price": price,
+                    "prev_price": prev_price
+                }
+                # 会社名の更新：もし現在「コードのみ」で登録されている場合だけ、自動取得した名前を流し込む
+                if ticker in st.session_state.config.get("stocks", []):
                     if ticker not in st.session_state.config.get("stock_info", {}) or st.session_state.config["stock_info"][ticker] == ticker:
-                        st.session_state.config["stock_info"][ticker] = name
-        
+                        if name and name != ticker:
+                            st.session_state.config["stock_info"][ticker] = name
         save_config(st.session_state.config)
         st.rerun()
 
@@ -166,26 +151,25 @@ if st.session_state.config.get("indices") or st.session_state.config.get("stocks
         cols = st.columns(cols_count)
         for j, item in enumerate(all_items[i:i+cols_count]):
             with cols[j]:
-                # historyデータを取り出す
                 h = st.session_state.config.get("history", {}).get(item["symbol"], {})
-                
-                # ここで辞書か数値かに関わらず、安全に価格を取得
-                if isinstance(h, dict):
-                    curr = h.get("price")
-                    prev = h.get("prev_price")
-                else:
-                    # もし履歴がまだ辞書になっていなかったら数値として扱う
-                    curr = h
-                    prev = None
+                curr = h.get("price")
+                prev = h.get("prev_price")
                 
                 if curr is not None:
+                    display_price = int(curr)
                     if prev is not None and prev != curr:
                         diff = curr - prev
                         diff_pct = (diff / prev) * 100
-                        st.metric(label=item["name"], value=f"{curr:,.2f}")
-                        st.write(f"前回比: {diff:,.2f} ({diff_pct:+.2f}%)")
+                        
+                        # 色の判定（下がれば赤、上がれば濃い青）
+                        color = "#ff4b4b" if diff < 0 else "#003366"
+                        
+                        st.markdown(f"**{item['name']}**")
+                        st.markdown(f"## **{display_price:,}**")
+                        st.markdown(f"<span style='color:{color}; font-size:16px;'>前回比: {diff:,.2f} ({diff_pct:+.2f}%)</span>", unsafe_allow_html=True)
                     else:
-                        st.metric(label=item["name"], value=f"{curr:,.2f}")
+                        st.markdown(f"**{item['name']}**")
+                        st.markdown(f"## **{display_price:,}**")
                 else:
                     st.write(f"{item['name']}")
                     st.caption("「更新」ボタンを押してください")
@@ -194,3 +178,4 @@ else:
 
 st.divider()
 st.caption("※データ取得に時間がかかる場合があります。")
+
