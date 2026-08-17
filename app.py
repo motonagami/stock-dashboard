@@ -17,17 +17,19 @@ def load_config():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 config = json.load(f)
+                # labels が無ければ初期値をセット
                 if "labels" not in config:
                     config["labels"] = {"^N225": "日経平均株価", "^GSPC": "S&P500"}
                 return config
         except:
             pass
+    # ファイルがない、または読み取れない場合のデフォルト設定
     return {
         "indices": ["^N225", "^GSPC"],
         "stocks": [],
-        "history": {}, # {ticker: {"price": 0.0, "prev_price": 0.0}}
+        "history": {},
         "labels": {"^N225": "日経平均株価", "^GSPC": "S&P500"},
-        "stock_info": {} # {ticker: "会社名"}
+        "stock_info": {}
     }
 
 def save_config(config):
@@ -64,16 +66,19 @@ with st.sidebar:
     st.header("⚙️ 銘柄設定")
     st.write("監視する銘柄を管理します。")
     
-    all_tickers = st.session_state.config["indices"] + st.session_state.config["stocks"]
+    all_tickers = st.session_state.config.get("indices", []) + st.session_state.config.get("stocks", [])
     
     if all_tickers:
         for ticker in all_tickers:
             cols = st.columns([4, 1])
-            # 表示名の決定ルール
-            if ticker in st.session_state.config["indices"]:
-                display_name = st.session_state.config["labels"].get(ticker, ticker)
-            else:
-                display_name = st.session_state.config["stock_info"].get(ticker, ticker.replace(".T", "").replace("^", ""))
+            # labels が存在しない場合も考慮して安全に取得
+            labels = st.session_state.config.get("labels", {})
+            display_name = labels.get(ticker, ticker.replace(".T", "").replace("^", ""))
+            
+            # stock_info も安全に取得
+            stock_info = st.session_state.config.get("stock_info", {})
+            if ticker in stock_info:
+                display_name = stock_info[ticker]
             
             cols[0].write(display_name)
             if cols[1].button("削除", key=f"del_{ticker}"):
@@ -90,7 +95,7 @@ with st.sidebar:
     new_ticker = st.text_input("追加する証券コード", placeholder="例: 9101")
     new_name = st.text_input("表示名（日本語）", placeholder="例: 東北電力")
     if st.button("銘柄を追加"):
-        if new_ticker and new_ticker not in st.session_state.config["indices"] and new_ticker not in st.session_state.config["stocks"]:
+        if new_ticker and new_ticker not in st.session_state.config.get("indices", []) and new_ticker not in st.session_state.config.get("stocks", []):
             st.session_state.config["stocks"].append(new_ticker)
             st.session_state.config["stock_info"][new_ticker] = new_name if new_name else new_ticker.replace(".T", "").replace("^", "")
             save_config(st.session_state.config)
@@ -105,42 +110,33 @@ st.write("市場が閉まっている時間は、前日の終値を表示しま�
 # 目立つ更新ボタン
 if st.button("🚀 最新の株価を更新", type="primary", use_container_width=True):
     with st.spinner("データを取得中..."):
-        for ticker in st.session_state.config["indices"] + st.session_state.config["stocks"]:
+        for ticker in st.session_state.config.get("indices", []) + st.session_state.config.get("stocks", []):
             price, name = get_stock_data(ticker)
             if price:
-                # 前回の価格を取得（なければ現在の価格をセット）
-                prev_price = st.session_state.config["history"].get(ticker, {}).get("price", price)
-                
-                # 履歴を更新
-                st.session_state.config["history"][ticker] = {
-                    "price": price,
-                    "prev_price": prev_price
-                }
-                # 会社名を保存（未登録の場合のみ）
-                if ticker in st.session_state.config["stocks"]:
-                    if ticker not in st.session_state.config["stock_info"] or st.session_state.config["stock_info"][ticker] == ticker:
+                st.session_state.config["history"][ticker] = price
+                if name and name != ticker:
+                    if ticker not in st.session_state.config.get("stock_info", {}):
                         st.session_state.config["stock_info"][ticker] = name
-        
         save_config(st.session_state.config)
         st.rerun()
 
 st.divider()
 
 # --- 結果の表示 ---
-if st.session_state.config["indices"] or st.session_state.config["stocks"]:
+if st.session_state.config.get("indices") or st.session_state.config.get("stocks"):
     all_items = []
+    labels = st.session_state.config.get("labels", {})
     
-    # インデックスの整理
-    for ticker in st.session_state.config["indices"]:
-        all_items.append({"name": st.session_state.config["labels"].get(ticker, ticker), "symbol": ticker})
+    for ticker in st.session_state.config.get("indices", []):
+        all_items.append({"name": labels.get(ticker, ticker), "symbol": ticker})
     
-    # 個別株の整理
-    for ticker in st.session_state.config["stocks"]:
-        info = st.session_state.config["stock_info"].get(ticker)
+    for ticker in st.session_state.config.get("stocks", []):
+        info = st.session_state.config.get("stock_info", {}).get(ticker)
         if info:
             all_items.append({"name": f"{info} ({ticker})", "symbol": ticker})
         else:
-            all_items.append({"name": ticker.replace(".T", "").replace("^", ""), "symbol": ticker})
+            display_name = ticker.replace(".T", "").replace("^", "")
+            all_items.append({"name": f"{display_name}", "symbol": ticker})
 
     num_items = len(all_items)
     cols_count = min(3, num_items)
@@ -149,25 +145,9 @@ if st.session_state.config["indices"] or st.session_state.config["stocks"]:
         cols = st.columns(cols_count)
         for j, item in enumerate(all_items[i:i+cols_count]):
             with cols[j]:
-                h = st.session_state.config["history"].get(item["symbol"], {})
-                curr = h.get("price")
-                prev = h.get("prev_price")
-                
-                if curr:
-                    # 差額の計算
-                    if prev and prev != curr:
-                        diff = curr - prev
-                        diff_pct = (diff / prev) * 100
-                        # 色の判定
-                        color = "normal"
-                        if diff > 0: color = "normal" # Streamlitのmetricは自動で色が変わる
-                        
-                        # メインの数値
-                        st.metric(label=item["name"], value=f"{curr:,.2f}")
-                        # 差額のサブテキスト表示
-                        st.write(f"前回比: {diff:,.2f} ({diff_pct:+.2f}%)")
-                    else:
-                        st.metric(label=item["name"], value=f"{curr:,.2f}")
+                price = st.session_state.config.get("history", {}).get(item["symbol"])
+                if price:
+                    st.metric(label=item["name"], value=f"{price:,.2f}")
                 else:
                     st.write(f"{item['name']}")
                     st.caption("「更新」ボタンを押してください")
