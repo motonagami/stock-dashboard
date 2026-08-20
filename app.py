@@ -7,18 +7,25 @@ import os
 CONFIG_FILE = "config.json"
 
 def load_config():
+    default_config = {
+        "indices": ["^N225", "^GSPC"],
+        "stocks": [],
+        "history": {"^N225": 0.0, "^GSPC": 0.0},
+        "prev_history": {"^N225": 0.0, "^GSPC": 0.0},
+        "prev_day_close_history": {"^N225": 0.0, "^GSPC": 0.0},
+        "labels": {"^N225": "日経平均株価", "^GSPC": "S&P500"},
+        "stock_info": {"^N225": "Nikkei 225", "^GSPC": "S&P 500"}
+    }
+    
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            loaded_config = json.load(f)
+            for key in default_config:
+                if key not in loaded_config:
+                    loaded_config[key] = default_config[key]
+            return loaded_config
     else:
-        return {
-            "indices": ["^N225", "^GSPC"],
-            "stocks": [],
-            "history": {"^N225": 0.0, "^GSPC": 0.0},
-            "prev_history": {"^N225": 0.0, "^GSPC": 0.0},
-            "labels": {"^N225": "日経平均株価", "^GSPC": "S&P500"},
-            "stock_info": {"^N225": "Nikkei 225", "^GSPC": "S&P 500"}
-        }
+        return default_config
 
 def save_config(config):
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -30,13 +37,18 @@ config = load_config()
 def get_stock_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
-        df = ticker.history(period="1d")
-        if not df.empty:
-            return round(df['Close'].iloc[-1], 0)
+        df = ticker.history(period="2d")
+        if len(df) >= 2:
+            current_price = round(df['Close'].iloc[-1], 0)
+            prev_day_close = round(df['Close'].iloc[-2], 0)
+            return current_price, prev_day_close
+        elif len(df) == 1:
+            price = round(df['Close'].iloc[-1], 0)
+            return price, price
         else:
-            return None
+            return None, None
     except Exception:
-        return None
+        return None, None
 
 # --- サイドバー：銘柄設定 ---
 st.sidebar.title("⚙️ 銘柄設定")
@@ -51,6 +63,10 @@ with st.sidebar.expander("銘柄の追加・削除", expanded=True):
                 config["stocks"].append({"name": new_name, "symbol": symbol})
                 config["labels"][symbol] = new_name
                 config["stock_info"][symbol] = new_name
+                if symbol not in config["history"]: config["history"][symbol] = 0.0
+                if symbol not in config["prev_history"]: config["prev_history"][symbol] = 0.0
+                if symbol not in config["prev_day_close_history"]: config["prev_day_close_history"][symbol] = 0.0
+                
                 save_config(config)
                 st.success(f"{new_name} を追加しました")
                 st.rerun()
@@ -76,7 +92,6 @@ with st.sidebar.expander("銘柄の追加・削除", expanded=True):
 st.title("📈 株価監視ダッシュボード")
 st.write("市場が閉まっている時間は、前日の終値を表示します。")
 
-# 更新ボタンとステータス表示
 status_placeholder = st.empty()
 
 if st.button("🔄 更新", type="primary"):
@@ -87,16 +102,14 @@ if st.button("🔄 更新", type="primary"):
     status_placeholder.info(f"データ取得中... (対象: {len(all_targets)}件)")
     
     for symbol in all_targets:
-        new_price = get_stock_data(symbol)
-        if new_price is not None:
+        current, prev_day_close = get_stock_data(symbol)
+        if current is not None:
             old_price = config["history"].get(symbol, 0.0)
-            
-            # 価格が「前回と異なる場合のみ」、前回の値を「過去の履歴」に移動する
-            if old_price != 0 and new_price != old_price:
+            if old_price != 0 and current != old_price:
                 config["prev_history"][symbol] = old_price
             
-            # 最新の価格を履歴に保存
-            config["history"][symbol] = new_price
+            config["history"][symbol] = current
+            config["prev_day_close_history"][symbol] = prev_day_close
             success_count += 1
         else:
             fail_count += 1
@@ -116,44 +129,49 @@ for item in items_to_display:
     name = item["name"]
     symbol = item["symbol"]
     current_price = config["history"].get(symbol, 0.0)
-    prev_price = config["prev_history"].get(symbol, 0.0)
+    prev_update_price = config["prev_history"].get(symbol, 0.0)
+    prev_day_close = config["prev_day_close_history"].get(symbol, 0.0)
     
-    # 差分の計算
     diff_amount = 0
     diff_percent = 0.0
-    color = "#000000" # デフォルト黒
-    display_diff = "-" # 初回などデータがない場合
+    color = "#000000"
+    display_diff = "-"
     
-    if current_price != 0 and prev_price != 0:
-        diff_amount = current_price - prev_price
-        diff_percent = (diff_amount / prev_price) * 100
+    if current_price != 0 and prev_update_price != 0:
+        diff_amount = current_price - prev_update_price
+        diff_percent = (diff_amount / prev_update_price) * 100
         
         if diff_amount > 0:
-            color = "#00008B" # 濃い青（上昇）
+            color = "#00008B"
         elif diff_amount < 0:
-            color = "#FF0000" # 赤（下落）
+            color = "#FF0000"
         else:
-            color = "#888888" # 変化なしならグレー
+            color = "#888888"
             
         display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
 
-    # HTML/CSSによるカスタム表示（スマホ向けに最適化）
-    # コード表示(symbol)を削除し、スッキリしたデザインに調整
-    st.markdown(f"""
-    <div style="
-        background-color: #f0f2f6;
-        padding: 25px;
-        border-radius: 20px;
-        margin-bottom: 20px;
-        border: 2px solid #e0e0e0;
-        text-align: center;
-    ">
-        <p style="font-size: 22px; margin: 0; color: #555; font-weight: bold;">{name}</p>
-        <p style="font-size: 50px; font-weight: bold; margin: 15px 0; color: #000;">
-            {current_price:,}
-        </p>
-        <p style="font-size: 24px; font-weight: bold; margin: 0; color: {color};">
-            {display_diff}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    # --- 修正ポイント：HTMLを最小限に絞ってサイズを制御 ---
+    st.markdown(f"### {name}")
+    
+    # 現在株価（50px）
+    col_l1, col_v1 = st.columns([1, 3])
+    col_l1.markdown("**現在株価**")
+    col_v1.markdown(f"<div style='font-size: 50px; font-weight: bold;'>{current_price:,}</div>", unsafe_allow_html=True)
+
+    # 前回比（24px）
+    col_l2, col_v2 = st.columns([1, 3])
+    col_l2.markdown("**前回比**")
+    col_v2.markdown(f"<div style='font-size: 24px; font-weight: bold; color: {color};'>{display_diff}</div>", unsafe_allow_html=True)
+
+    # 前日終値（24px）
+    col_l3, col_v3 = st.columns([1, 3])
+    col_l3.markdown("**前日終値**")
+    col_v3.markdown(f"<div style='font-size: 24px; font-weight: bold; color: #000;'>{prev_day_close:,}</div>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+
+with st.expander("詳細ログ"):
+    st.write("現在の履歴:", config["history"])
+    st.write("前回更新時価格:", config["prev_history"])
+    st.write("前日の終値履歴:", config["prev_day_close_history"])
+    st.write("銘柄リスト:", config["stocks"])
