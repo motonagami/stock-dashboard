@@ -38,7 +38,6 @@ if "today_stocks" not in st.session_state:
 def get_stock_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
-        # 直近2日分を取得
         df = ticker.history(period="2d")
         if len(df) >= 2:
             current_price = round(df['Close'].iloc[-1], 0)
@@ -56,10 +55,10 @@ def get_stock_data(ticker_symbol):
 st.set_page_config(page_title="自分専用・株価監視", layout="wide")
 
 # 画面全体を中央に寄せるためのレイアウト
-# [1, 4, 1] の比率で、真ん中の 4 の部分にコンテンツを配置します
-col_left, col_mid, col_right = st.columns([1, 4, 1])
+# [1, 1, 3, 1, 1] の比率で、真ん中の 3 の部分をメインコンテンツにします
+col_outer1, col_inner_left, col_main, col_inner_right, col_outer2 = st.columns([1, 1, 3, 1, 1])
 
-with col_mid:
+with col_main:
     st.title("📈 株価監視ダッシュボード")
     st.write("※PCで管理アプリを使い config.json を更新することで常設銘柄が反映されます。")
     st.write("---")
@@ -151,27 +150,27 @@ with col_mid:
             
             display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
 
-        # --- 修正されたHTML表示ブロック ---
-        # 複雑なFlexboxを避け、単純なdivとmarginを使用することで確実に表示させます
-        # 中央配置のために max-width と margin: auto を使用
-        st.markdown(f"""
-        <div style="max-width: 800px; margin: 0 auto; text-align: center; font-family: sans-serif;">
-            <h3 style="margin-bottom: 20px;">{name}</h3>
-            
-            <div style="margin-bottom: 20px;">
-                <span style="font-size: 24px; font-weight: bold;">現在株価</span>
-                <span style="font-size: 60px; font-weight: bold; margin-left: 30px;">{current_price if current_price else '--':,}</span>
-            </div>
+        # 銘柄名の表示
+        st.markdown(f"### {name}")
+        
+        # 各項目を「ラベル」と「数値」の2つの列に分けて表示
+        # [2, 3] の比率で、ラベルを左、数値を右に配置
+        c_l1, c_v1 = st.columns([2, 3])
+        c_l1.markdown(f"**現在株価**")
+        c_v1.markdown(f"{current_price if current_price else '--':,}")
 
-            <div style="margin-bottom: 20px;">
-                <span style="font-size: 24px; font-weight: bold;">前日比</span>
-                <span style="font-size: 35px; font-weight: bold; color: {color}; margin-left: 30px;">{display_diff}</span>
-            </div>
+        c_l2, c_v2 = st.columns([2, 3])
+        c_l2.markdown(f"**前日比**")
+        # 前日比は色を付けるためにHTMLを最小限に使う
+        c_v2.markdown(f"<p style='color:{color}; font-size:25px; font-weight:bold;'>{display_diff}</p>", unsafe_allow_html=True)
 
-            <div style="margin-bottom: 40px;">
-                <span style="font-size: 24px; font-weight: bold;">前日終値</span>
-                <span style="font-size: 40px; font-weight: bold; color: #000; margin-left: 30px;">{prev_day_close if prev_day_close else '--':,}</span>
-            </div>
-            <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 40px;">
-        </div>
-        """, unsafe_allow_html=True)
+        c_l3, c_v3 = st.columns([2, 3])
+        c_l3.markdown(f"**前日終値**")
+        c_v3.markdown(f"{prev_day_close if prev_day_close else '--':,}")
+        
+        st.write("---")
+
+with st.expander("詳細ログ (デバッグ用)"):
+    st.write("現在の履歴:", config["history"])
+    st.write("前日の終値履歴:", config["prev_day_close_history"])
+    st.write("銘柄リスト:", config["stocks"])
