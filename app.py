@@ -156,17 +156,17 @@ for item in items_to_display:
     # 現在株価（50px）
     col_l1, col_v1 = st.columns([1, 3])
     col_l1.markdown("**現在株価**")
-    col_v1.markdown(f"<div style='font-size: 50px; font-weight: bold;'>{current_price:,}</div>", unsafe_allow_html=True)
+    col_v1.markdown(f"<div style='font-size: 60px; font-weight: bold;'>{current_price:,}</div>", unsafe_allow_html=True)
 
     # 前回比（24px）
     col_l2, col_v2 = st.columns([1, 3])
     col_l2.markdown("**前回比**")
-    col_v2.markdown(f"<div style='font-size: 24px; font-weight: bold; color: {color};'>{display_diff}</div>", unsafe_allow_html=True)
+    col_v2.markdown(f"<div style='font-size: 35px; font-weight: bold; color: {color};'>{display_diff}</div>", unsafe_allow_html=True)
 
     # 前日終値（24px）
     col_l3, col_v3 = st.columns([1, 3])
     col_l3.markdown("**前日終値**")
-    col_v3.markdown(f"<div style='font-size: 24px; font-weight: bold; color: #000;'>{prev_day_close:,}</div>", unsafe_allow_html=True)
+    col_v3.markdown(f"<div style='font-size: 40px; font-weight: bold; color: #000;'>{prev_day_close:,}</div>", unsafe_allow_html=True)
     
     st.markdown("---")
 
