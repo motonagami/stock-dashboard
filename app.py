@@ -38,6 +38,7 @@ if "today_stocks" not in st.session_state:
 def get_stock_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
+        # 直近2日分を取得
         df = ticker.history(period="2d")
         if len(df) >= 2:
             current_price = round(df['Close'].iloc[-1], 0)
@@ -150,32 +151,27 @@ with col_mid:
             
             display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
 
-        # --- HTMLによるスタイリッシュな表示ブロック ---
-        # 共通のCSSスタイル（中央配置、フレックスボックス）
-        # gap: 30px でラベルと数字の間を適切に保ちます
+        # --- 修正されたHTML表示ブロック ---
+        # 複雑なFlexboxを避け、単純なdivとmarginを使用することで確実に表示させます
+        # 中央配置のために max-width と margin: auto を使用
         st.markdown(f"""
-        <div style="text-align: center; margin-bottom: 30px;">
-            <h3 style="margin-bottom: 10px;">{name}</h3>
+        <div style="max-width: 800px; margin: 0 auto; text-align: center; font-family: sans-serif;">
+            <h3 style="margin-bottom: 20px;">{name}</h3>
             
-            <div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 30px; margin-bottom: 10px;">
+            <div style="margin-bottom: 20px;">
                 <span style="font-size: 24px; font-weight: bold;">現在株価</span>
-                <span style="font-size: 60px; font-weight: bold;">{current_price if current_price else '--':,}</span>
+                <span style="font-size: 60px; font-weight: bold; margin-left: 30px;">{current_price if current_price else '--':,}</span>
             </div>
 
-            <div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 30px; margin-bottom: 10px;">
+            <div style="margin-bottom: 20px;">
                 <span style="font-size: 24px; font-weight: bold;">前日比</span>
-                <span style="font-size: 35px; font-weight: bold; color: {color};">{display_diff}</span>
+                <span style="font-size: 35px; font-weight: bold; color: {color}; margin-left: 30px;">{display_diff}</span>
             </div>
 
-            <div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 30px;">
+            <div style="margin-bottom: 40px;">
                 <span style="font-size: 24px; font-weight: bold;">前日終値</span>
-                <span style="font-size: 40px; font-weight: bold; color: #000;">{prev_day_close if prev_day_close else '--':,}</span>
+                <span style="font-size: 40px; font-weight: bold; color: #000; margin-left: 30px;">{prev_day_close if prev_day_close else '--':,}</span>
             </div>
+            <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 40px;">
         </div>
-        <hr>
         """, unsafe_allow_html=True)
-
-with st.expander("詳細ログ (デバッグ用)"):
-    st.write("現在の履歴:", config["history"])
-    st.write("前日の終値履歴:", config["prev_day_close_history"])
-    st.write("銘柄リスト:", config["stocks"])
