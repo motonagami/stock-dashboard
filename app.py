@@ -4,6 +4,7 @@ import json
 import os
 
 # --- 設定と初期化 ---
+# ファイルパスはカレントディレクトリの config.json を参照します
 CONFIG_FILE = "config.json"
 
 def load_config():
@@ -18,27 +19,35 @@ def load_config():
     }
     
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            loaded_config = json.load(f)
-            for key in default_config:
-                if key not in loaded_config:
-                    loaded_config[key] = default_config[key]
-            return loaded_config
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                loaded_config = json.load(f)
+                # デフォルト値で補完（ファイルが壊れていたり項目が足りない場合のため）
+                for key in default_config:
+                    if key not in loaded_config:
+                        loaded_config[key] = default_config[key]
+                return loaded_config
+        except Exception as e:
+            st.error(f"config.json の読み込みエラー: {e}")
+            return default_config
     else:
         return default_config
 
 def save_config(config):
-    # config.json への書き込みを確実に実行する
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f, ensure_ascii=False, indent=4)
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        st.error(f"config.json への保存エラー: {e}")
 
-# 起動時に最新のconfigを読み込む
+# 初期設定の読み込み
 config = load_config()
 
 # --- データ取得関数 ---
 def get_stock_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
+        # 直近2日分を取得
         df = ticker.history(period="2d")
         if len(df) >= 2:
             current_price = round(df['Close'].iloc[-1], 0)
@@ -52,64 +61,68 @@ def get_stock_data(ticker_symbol):
     except Exception:
         return None, None
 
+# --- 画面の構成 ---
+st.set_page_config(page_title="自分専用・株価監視", layout="wide")
+
+st.title("📈 株価監視ダッシュボード")
+st.write("※PCで更新し、config.json をGitHubへアップロードすることでWebアプリにも反映されます。")
+
 # --- サイドバー：銘柄設定 ---
-st.sidebar.title("⚙️ 銘柄設定")
+st.sidebar.title("⚙️ 銘柄管理")
 with st.sidebar.expander("銘柄の追加・削除", expanded=True):
     new_name = st.text_input("日本語名（例：トヨタ自動車）")
     new_code = st.text_input("コード（例：7203）")
     
-    if st.button("追加"):
+    if st.button("銘柄を追加", type="primary"):
         if new_name and new_code:
-            # 正しいシンボル形式へ変換
+            # 証券コードに .T を付与（日本株の場合）
             symbol = new_code if "." in new_code else f"{new_code}.T"
             
             # 重複チェック
-            is_index = symbol in config["indices"]
-            is_stock = any(s["symbol"] == symbol for s in config["stocks"])
-            
-            if not is_index and not is_stock:
-                # 1. メモリ上のconfigを更新
+            existing_symbols = [s["symbol"] for s in config["stocks"]]
+            if symbol not in config["indices"] and symbol not in existing_symbols:
                 config["stocks"].append({"name": new_name, "symbol": symbol})
                 config["labels"][symbol] = new_name
                 config["stock_info"][symbol] = new_name
                 
-                # 2. 各種履歴の初期化
+                # 履歴の初期化
                 if symbol not in config["history"]: config["history"][symbol] = 0.0
                 if symbol not in config["prev_history"]: config["prev_history"][symbol] = 0.0
                 if symbol not in config["prev_day_close_history"]: config["prev_day_close_history"][symbol] = 0.0
                 
-                # 3. 重要：config.jsonに即座に書き込む（これで再起動しても消えなくなる）
                 save_config(config)
-                
                 st.success(f"{new_name} を追加しました")
                 st.rerun()
             else:
-                st.warning("既に登録されている銘柄です")
+                st.warning("既に登録されている銘柄です。")
         else:
             st.warning("名前とコードを入力してください")
 
     if config["stocks"]:
         st.write("---")
-        del_list = []
         for i, stock in enumerate(config["stocks"]):
             col1, col2 = st.columns([3, 1])
             col1.write(f"{stock['name']} ({stock['symbol']})")
-            if col2.button("削除", key=f"del_{i}"):
-                del_list.append(i)
-        
-        if st.button("削除を実行"):
-            for i in sorted(del_list, reverse=True):
-                config["stocks"].pop(i)
-            save_config(config) # 削除もconfig.jsonに反映
-            st.rerun()
+            # 削除ボタンを個別に機能させる
+            if col2.button("削除", key=f"del_btn_{stock['symbol']}"):
+                # リストから該当する銘柄を除外
+                config["stocks"] = [s for s in config["stocks"] if s["symbol"] != stock["symbol"]]
+                
+                # 他の辞書からも削除
+                if stock["symbol"] in config["labels"]:
+                    del config["labels"][stock["symbol"]]
+                if stock["symbol"] in config["stock_info"]:
+                    del config["stock_info"][stock["symbol"]]
+                
+                save_config(config)
+                st.success(f"{stock['name']} を削除しました")
+                st.rerun()
 
-# --- メイン画面 ---
-st.title("📈 株価監視ダッシュボード")
-st.write("市場が閉まっている時間は、前日の終値を表示します。")
-
+# --- メイン画面：更新ボタン ---
 status_placeholder = st.empty()
 
-if st.button("🔄 更新", type="primary"):
+if st.button("🔄 株価を更新", type="primary"):
+    # 取得対象のリスト（指数 + 個別銘柄）
     all_targets = config["indices"] + [s["symbol"] for s in config["stocks"]]
     success_count = 0
     fail_count = 0
@@ -120,6 +133,8 @@ if st.button("🔄 更新", type="primary"):
         current, prev_day_close = get_stock_data(symbol)
         if current is not None:
             old_price = config["history"].get(symbol, 0.0)
+            
+            # 前回の更新時価格と異なる場合のみ、prev_historyを更新
             if old_price != 0 and current != old_price:
                 config["prev_history"][symbol] = old_price
             
@@ -129,17 +144,19 @@ if st.button("🔄 更新", type="primary"):
         else:
             fail_count += 1
     
-    save_config(config) # 更新結果もconfig.jsonに保存
+    save_config(config)
     status_placeholder.success(f"更新完了！ 成功: {success_count}, 失敗: {fail_count}")
     st.rerun()
 
 # --- 表示処理 ---
+# 表示するリストを組み立てる
 items_to_display = []
 for idx in config["indices"]:
     items_to_display.append({"name": config["labels"].get(idx, idx), "symbol": idx})
 for s in config["stocks"]:
     items_to_display.append({"name": s["name"], "symbol": s["symbol"]})
 
+# グリッド状に表示するための処理
 for item in items_to_display:
     name = item["name"]
     symbol = item["symbol"]
@@ -157,35 +174,35 @@ for item in items_to_display:
         diff_percent = (diff_amount / prev_update_price) * 100
         
         if diff_amount > 0:
-            color = "#00008B"
+            color = "#00008B" # 濃い青
         elif diff_amount < 0:
-            color = "#FF0000"
+            color = "#FF0000" # 赤
         else:
-            color = "#888888"
+            color = "#888888" # グレー
             
         display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
 
-    # --- 修正ポイント：HTMLを最小限に絞ってサイズを制御 ---
+    # 各銘柄の表示ブロック
     st.markdown(f"### {name}")
     
-    # 現在株価（50px）
+    # 現在株価
     col_l1, col_v1 = st.columns([1, 3])
     col_l1.markdown("**現在株価**")
     col_v1.markdown(f"<div style='font-size: 60px; font-weight: bold;'>{current_price:,}</div>", unsafe_allow_html=True)
 
-    # 前回比（24px）
+    # 前回比
     col_l2, col_v2 = st.columns([1, 3])
     col_l2.markdown("**前回比**")
     col_v2.markdown(f"<div style='font-size: 35px; font-weight: bold; color: {color};'>{display_diff}</div>", unsafe_allow_html=True)
 
-    # 前日終値（24px）
+    # 前日終値
     col_l3, col_v3 = st.columns([1, 3])
     col_l3.markdown("**前日終値**")
     col_v3.markdown(f"<div style='font-size: 40px; font-weight: bold; color: #000;'>{prev_day_close:,}</div>", unsafe_allow_html=True)
     
     st.markdown("---")
 
-with st.expander("詳細ログ"):
+with st.expander("詳細ログ (デバッグ用)"):
     st.write("現在の履歴:", config["history"])
     st.write("前回更新時価格:", config["prev_history"])
     st.write("前日の終値履歴:", config["prev_day_close_history"])
