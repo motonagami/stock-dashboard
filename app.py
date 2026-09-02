@@ -28,9 +28,11 @@ def load_config():
         return default_config
 
 def save_config(config):
+    # config.json への書き込みを確実に実行する
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=4)
 
+# 起動時に最新のconfigを読み込む
 config = load_config()
 
 # --- データ取得関数 ---
@@ -58,18 +60,31 @@ with st.sidebar.expander("銘柄の追加・削除", expanded=True):
     
     if st.button("追加"):
         if new_name and new_code:
+            # 正しいシンボル形式へ変換
             symbol = new_code if "." in new_code else f"{new_code}.T"
-            if symbol not in config["indices"] and symbol not in [s["symbol"] for s in config["stocks"]]:
+            
+            # 重複チェック
+            is_index = symbol in config["indices"]
+            is_stock = any(s["symbol"] == symbol for s in config["stocks"])
+            
+            if not is_index and not is_stock:
+                # 1. メモリ上のconfigを更新
                 config["stocks"].append({"name": new_name, "symbol": symbol})
                 config["labels"][symbol] = new_name
                 config["stock_info"][symbol] = new_name
+                
+                # 2. 各種履歴の初期化
                 if symbol not in config["history"]: config["history"][symbol] = 0.0
                 if symbol not in config["prev_history"]: config["prev_history"][symbol] = 0.0
                 if symbol not in config["prev_day_close_history"]: config["prev_day_close_history"][symbol] = 0.0
                 
+                # 3. 重要：config.jsonに即座に書き込む（これで再起動しても消えなくなる）
                 save_config(config)
+                
                 st.success(f"{new_name} を追加しました")
                 st.rerun()
+            else:
+                st.warning("既に登録されている銘柄です")
         else:
             st.warning("名前とコードを入力してください")
 
@@ -85,7 +100,7 @@ with st.sidebar.expander("銘柄の追加・削除", expanded=True):
         if st.button("削除を実行"):
             for i in sorted(del_list, reverse=True):
                 config["stocks"].pop(i)
-            save_config(config)
+            save_config(config) # 削除もconfig.jsonに反映
             st.rerun()
 
 # --- メイン画面 ---
@@ -114,7 +129,7 @@ if st.button("🔄 更新", type="primary"):
         else:
             fail_count += 1
     
-    save_config(config)
+    save_config(config) # 更新結果もconfig.jsonに保存
     status_placeholder.success(f"更新完了！ 成功: {success_count}, 失敗: {fail_count}")
     st.rerun()
 
