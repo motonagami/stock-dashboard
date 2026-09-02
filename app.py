@@ -31,7 +31,6 @@ def load_config():
 config = load_config()
 
 # --- セッション状態の初期化 ---
-# 当日のみの追加銘柄をメモリに保持するための変数
 if "today_stocks" not in st.session_state:
     st.session_state.today_stocks = []
 
@@ -54,115 +53,129 @@ def get_stock_data(ticker_symbol):
         return None, None
 
 # --- 画面の構成 ---
+# layout="wide"を維持しつつ、中央に寄せるためにコンテナ的な処理を検討
 st.set_page_config(page_title="自分専用・株価監視", layout="wide")
+
+# 画面全体を中央に寄せるための工夫（左右に余白を作るための列分割）
+# [1, 3, 1] の比率で、真ん中の 3 の部分にコンテンツを配置します
+main_content = st.container()
 
 st.title("📈 株価監視ダッシュボード")
 st.write("※PCで管理アプリを使い config.json を更新することで常設銘柄が反映されます。")
 
-# --- サイドバー：当日のみの銘柄追加 ---
-st.sidebar.title("⚙️ 当日の追加")
-with st.sidebar.expander("一時的な銘柄追加", expanded=True):
-    new_name = st.text_input("日本語名（例：トヨタ自動車）")
-    new_code = st.text_input("コード（例：7203）")
-    
-    if st.button("追加", type="primary"):
-        if new_name and new_code:
-            symbol = new_code if "." in new_code else f"{new_code}.T"
-            if not any(s["symbol"] == symbol for s in config["stocks"]) and \
-               not any(s["symbol"] == symbol for s in st.session_state.today_stocks):
-                
-                st.session_state.today_stocks.append({"name": new_name, "symbol": symbol})
-                st.success(f"{new_name} を追加しました（ブラウザ更新まで保持）")
-                st.rerun()
-            else:
-                st.warning("既にリストに含まれています。")
-        else:
-            st.warning("名前とコードを入力してください")
+# 画面を中央に寄せるためのレイアウト
+col_left, col_mid, col_right = st.columns([1, 4, 1])
 
-    if st.session_state.today_stocks:
-        st.write("---")
-        for i, stock in enumerate(st.session_state.today_stocks):
-            col1, col2 = st.columns([3, 1])
-            col1.write(f"{stock['name']} ({stock['symbol']})")
-            if col2.button("削除", key=f"del_tmp_{i}"):
-                st.session_state.today_stocks.pop(i)
-                st.rerun()
-
-# --- メイン画面：更新ボタン ---
-status_placeholder = st.empty()
-
-if st.button("🔄 株価を更新", type="primary"):
-    # 常設銘柄 + 当日の追加銘柄
-    all_targets = config["indices"] + [s["symbol"] for s in config["stocks"]] + \
-                   [s["symbol"] for s in st.session_state.today_stocks]
-    
-    success_count = 0
-    fail_count = 0
-    
-    status_placeholder.info(f"データ取得中... (対象: {len(all_targets)}件)")
-    
-    for symbol in all_targets:
-        current, prev_day_close = get_stock_data(symbol)
-        if current is not None:
-            success_count += 1
-        else:
-            fail_count += 1
-    
-    status_placeholder.success(f"更新完了！ 成功: {success_count}, 失敗: {fail_count}")
-    st.rerun()
-
-# --- 表示処理 ---
-# 表示対象を統合
-items_to_display = []
-# 1. 常設指数
-for idx in config["indices"]:
-    items_to_display.append({"name": config["labels"].get(idx, idx), "symbol": idx})
-# 2. 常設個別銘柄
-for s in config["stocks"]:
-    items_to_display.append({"name": s["name"], "symbol": s["symbol"]})
-# 3. 当日の追加銘柄
-for s in st.session_state.today_stocks:
-    items_to_display.append({"name": s["name"], "symbol": s["symbol"]})
-
-for item in items_to_display:
-    name = item["name"]
-    symbol = item["symbol"]
-    current_price, prev_day_close = get_stock_data(symbol)
-    
-    diff_amount = 0
-    diff_percent = 0.0
-    color = "#000000"
-    display_diff = "-"
-    
-    if current_price is not None and prev_day_close is not None:
-        diff_amount = current_price - prev_day_close
-        diff_percent = (diff_amount / prev_day_close) * 100
-        
-        if diff_amount < 0:
-            color = "#FF0000" # マイナスは赤
-        elif diff_amount > 0:
-            color = "#000000" # プラスは黒
-        else:
-            color = "#888888" # 変化なしはグレー
+with col_mid:
+    # --- サイドバー：当日のみの銘柄追加 ---
+    # サイドバー自体は左側に固定されますが、中身を整理します
+    with st.sidebar:
+        st.title("⚙️ 当日の追加")
+        with st.expander("一時的な銘柄追加", expanded=True):
+            new_name = st.text_input("日本語名（例：トヨタ自動車）")
+            new_code = st.text_input("コード（例：7203）")
             
-        display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
+            if st.button("追加", type="primary"):
+                if new_name and new_code:
+                    symbol = new_code if "." in new_code else f"{new_code}.T"
+                    if not any(s["symbol"] == symbol for s in config["stocks"]) and \
+                       not any(s["symbol"] == symbol for s in st.session_state.today_stocks):
+                        
+                        st.session_state.today_stocks.append({"name": new_name, "symbol": symbol})
+                        st.success(f"{new_name} を追加しました（ブラウザ更新まで保持）")
+                        st.rerun()
+                    else:
+                        st.warning("既にリストに含まれています。")
+                else:
+                    st.warning("名前とコードを入力してください")
 
-    # 表示ブロック
-    st.markdown(f"### {name}")
-    
-    # 現在株価
-    col_l1, col_v1 = st.columns([1, 3])
-    col_l1.markdown("**現在株価**")
-    col_v1.markdown(f"<div style='font-size: 60px; font-weight: bold;'>{current_price if current_price else '--':,}</div>", unsafe_allow_html=True)
+        if st.session_state.today_stocks:
+            st.write("---")
+            for i, stock in enumerate(st.session_state.today_stocks):
+                c1, c2 = st.columns([3, 1])
+                c1.write(f"{stock['name']} ({stock['symbol']})")
+                if c2.button("削除", key=f"del_tmp_{i}"):
+                    st.session_state.today_stocks.pop(i)
+                    st.rerun()
 
-    # 前日比（ネットから取った「前日終値」との比較）
-    col_l2, col_v2 = st.columns([1, 3])
-    col_l2.markdown("**前日比**")
-    col_v2.markdown(f"<div style='font-size: 35px; font-weight: bold; color: {color};'>{display_diff}</div>", unsafe_allow_html=True)
+    # --- メイン画面：更新ボタン ---
+    status_placeholder = st.empty()
 
-    # 前日終値
-    col_l3, col_v3 = st.columns([1, 3])
-    col_l3.markdown("**前日終値**")
-    col_v3.markdown(f"<div style='font-size: 40px; font-weight: bold; color: #000;'>{prev_day_close if prev_day_close else '--':,}</div>", unsafe_allow_html=True)
-    
-    st.markdown("---")
+    if st.button("🔄 株価を更新", type="primary"):
+        all_targets = config["indices"] + [s["symbol"] for s in config["stocks"]] + \
+                       [s["symbol"] for s in st.session_state.today_stocks]
+        
+        success_count = 0
+        fail_count = 0
+        
+        status_placeholder.info(f"データ取得中... (対象: {len(all_targets)}件)")
+        
+        for symbol in all_targets:
+            current, prev_day_close = get_stock_data(symbol)
+            if current is not None:
+                success_count += 1
+            else:
+                fail_count += 1
+        
+        status_placeholder.success(f"更新完了！ 成功: {success_count}, 失敗: {fail_count}")
+        st.rerun()
+
+    # --- 表示処理 ---
+    # 表示対象を統合
+    items_to_display = []
+    # 1. 常設指数
+    for idx in config["indices"]:
+        items_to_display.append({"name": config["labels"].get(idx, idx), "symbol": idx})
+    # 2. 常設個別銘柄
+    for s in config["stocks"]:
+        items_to_display.append({"name": s["name"], "symbol": s["symbol"]})
+    # 3. 当日の追加銘柄
+    for s in st.session_state.today_stocks:
+        items_to_display.append({"name": s["name"], "symbol": s["symbol"]})
+
+    for item in items_to_display:
+        name = item["name"]
+        symbol = item["symbol"]
+        current_price, prev_day_close = get_stock_data(symbol)
+        
+        diff_amount = 0
+        diff_percent = 0.0
+        color = "#000000"
+        display_diff = "-"
+        
+        if current_price is not None and prev_day_close is not None:
+            diff_amount = current_price - prev_day_close
+            diff_percent = (diff_amount / prev_day_close) * 100
+            
+            if diff_amount < 0:
+                color = "#FF0000" # マイナスは赤
+            elif diff_amount > 0:
+                color = "#000000" # プラスは黒
+            else:
+                color = "#888888" # 変化なしはグレー
+                
+            display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
+
+        # 各銘柄の表示ブロック
+        st.markdown(f"### {name}")
+        
+        # レイアウトを整えるためのカラム配置
+        # スマホでの見やすさを考慮し、ラベルと値を少し余裕を持って配置
+        c_l1, c_v1 = st.columns([1, 3])
+        c_l1.markdown("**現在株価**")
+        c_v1.markdown(f"<div style='font-size: 60px; font-weight: bold; text-align: right;'>{current_price if current_price else '--':,}</div>", unsafe_allow_html=True)
+
+        c_l2, c_v2 = st.columns([1, 3])
+        c_l2.markdown("**前日比**")
+        c_v2.markdown(f"<div style='font-size: 35px; font-weight: bold; color: {color}; text-align: right;'>{display_diff}</div>", unsafe_allow_html=True)
+
+        c_l3, c_v3 = st.columns([1, 3])
+        c_l3.markdown("**前日終値**")
+        c_v3.markdown(f"<div style='font-size: 40px; font-weight: bold; color: #000; text-align: right;'>{prev_day_close if prev_day_close else '--':,}</div>", unsafe_allow_html=True)
+        
+        st.markdown("---")
+
+with st.expander("詳細ログ (デバッグ用)"):
+    st.write("現在の履歴:", config["history"])
+    st.write("前日の終値履歴:", config["prev_day_close_history"])
+    st.write("銘柄リスト:", config["stocks"])
