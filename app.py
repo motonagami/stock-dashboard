@@ -38,7 +38,6 @@ if "today_stocks" not in st.session_state:
 def get_stock_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
-        # 直近2日分を取得
         df = ticker.history(period="2d")
         if len(df) >= 2:
             current_price = round(df['Close'].iloc[-1], 0)
@@ -53,22 +52,18 @@ def get_stock_data(ticker_symbol):
         return None, None
 
 # --- 画面の構成 ---
-# layout="wide"を維持しつつ、中央に寄せるためにコンテナ的な処理を検討
 st.set_page_config(page_title="自分専用・株価監視", layout="wide")
 
-# 画面全体を中央に寄せるための工夫（左右に余白を作るための列分割）
-# [1, 3, 1] の比率で、真ん中の 3 の部分にコンテンツを配置します
-main_content = st.container()
-
-st.title("📈 株価監視ダッシュボード")
-st.write("※PCで管理アプリを使い config.json を更新することで常設銘柄が反映されます。")
-
-# 画面を中央に寄せるためのレイアウト
+# 画面全体を中央に寄せるためのレイアウト
+# [1, 4, 1] の比率で、真ん中の 4 の部分にコンテンツを配置します
 col_left, col_mid, col_right = st.columns([1, 4, 1])
 
 with col_mid:
+    st.title("📈 株価監視ダッシュボード")
+    st.write("※PCで管理アプリを使い config.json を更新することで常設銘柄が反映されます。")
+    st.write("---")
+
     # --- サイドバー：当日のみの銘柄追加 ---
-    # サイドバー自体は左側に固定されますが、中身を整理します
     with st.sidebar:
         st.title("⚙️ 当日の追加")
         with st.expander("一時的な銘柄追加", expanded=True):
@@ -121,7 +116,6 @@ with col_mid:
         st.rerun()
 
     # --- 表示処理 ---
-    # 表示対象を統合
     items_to_display = []
     # 1. 常設指数
     for idx in config["indices"]:
@@ -153,27 +147,33 @@ with col_mid:
                 color = "#000000" # プラスは黒
             else:
                 color = "#888888" # 変化なしはグレー
-                
+            
             display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
 
-        # 各銘柄の表示ブロック
-        st.markdown(f"### {name}")
-        
-        # レイアウトを整えるためのカラム配置
-        # スマホでの見やすさを考慮し、ラベルと値を少し余裕を持って配置
-        c_l1, c_v1 = st.columns([1, 3])
-        c_l1.markdown("**現在株価**")
-        c_v1.markdown(f"<div style='font-size: 60px; font-weight: bold; text-align: right;'>{current_price if current_price else '--':,}</div>", unsafe_allow_html=True)
+        # --- HTMLによるスタイリッシュな表示ブロック ---
+        # 共通のCSSスタイル（中央配置、フレックスボックス）
+        # gap: 30px でラベルと数字の間を適切に保ちます
+        st.markdown(f"""
+        <div style="text-align: center; margin-bottom: 30px;">
+            <h3 style="margin-bottom: 10px;">{name}</h3>
+            
+            <div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 30px; margin-bottom: 10px;">
+                <span style="font-size: 24px; font-weight: bold;">現在株価</span>
+                <span style="font-size: 60px; font-weight: bold;">{current_price if current_price else '--':,}</span>
+            </div>
 
-        c_l2, c_v2 = st.columns([1, 3])
-        c_l2.markdown("**前日比**")
-        c_v2.markdown(f"<div style='font-size: 35px; font-weight: bold; color: {color}; text-align: right;'>{display_diff}</div>", unsafe_allow_html=True)
+            <div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 30px; margin-bottom: 10px;">
+                <span style="font-size: 24px; font-weight: bold;">前日比</span>
+                <span style="font-size: 35px; font-weight: bold; color: {color};">{display_diff}</span>
+            </div>
 
-        c_l3, c_v3 = st.columns([1, 3])
-        c_l3.markdown("**前日終値**")
-        c_v3.markdown(f"<div style='font-size: 40px; font-weight: bold; color: #000; text-align: right;'>{prev_day_close if prev_day_close else '--':,}</div>", unsafe_allow_html=True)
-        
-        st.markdown("---")
+            <div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 30px;">
+                <span style="font-size: 24px; font-weight: bold;">前日終値</span>
+                <span style="font-size: 40px; font-weight: bold; color: #000;">{prev_day_close if prev_day_close else '--':,}</span>
+            </div>
+        </div>
+        <hr>
+        """, unsafe_allow_html=True)
 
 with st.expander("詳細ログ (デバッグ用)"):
     st.write("現在の履歴:", config["history"])
