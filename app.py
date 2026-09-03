@@ -28,6 +28,13 @@ def load_config():
     else:
         return default_config
 
+def save_config(config):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        st.error(f"config.json への保存エラー: {e}")
+
 config = load_config()
 
 # --- セッション状態の初期化 ---
@@ -53,41 +60,55 @@ def get_stock_data(ticker_symbol):
         return None, None
 
 # --- 画面の構成 ---
-# layout="wide"を維持しつつ、中央に寄せるためにコンテナ的な処理を検討
 st.set_page_config(page_title="自分専用・株価監視", layout="wide")
-
-# 画面全体を中央に寄せるための工夫（左右に余白を作るための列分割）
-# [1, 3, 1] の比率で、真ん中の 3 の部分にコンテンツを配置します
-main_content = st.container()
-
-st.title("📈 株価監視ダッシュボード")
-st.write("※PCで管理アプリを使い config.json を更新することで常設銘柄が反映されます。")
 
 # 画面を中央に寄せるためのレイアウト
 col_left, col_mid, col_right = st.columns([1, 4, 1])
 
 with col_mid:
-    # --- サイドバー：当日のみの銘柄追加 ---
-    # サイドバー自体は左側に固定されますが、中身を整理します
+    st.title("📈 株価監視ダッシュボード")
+    st.write("※PCで管理アプリを使い config.json を更新することで常設銘柄が反映されます。")
+    st.write("---")
+
+    # --- サイドバー：銘柄管理（追加・削除のみのシンプルな画面） ---
     with st.sidebar:
-        st.title("⚙️ 当日の追加")
-        with st.expander("一時的な銘柄追加", expanded=True):
+        st.title("⚙️ 銘柄設定")
+        with st.expander("常設銘柄の追加・削除", expanded=True):
             new_name = st.text_input("日本語名（例：トヨタ自動車）")
             new_code = st.text_input("コード（例：7203）")
             
             if st.button("追加", type="primary"):
                 if new_name and new_code:
                     symbol = new_code if "." in new_code else f"{new_code}.T"
+                    if symbol not in config["indices"] and symbol not in [s["symbol"] for s in config["stocks"]]:
+                        config["stocks"].append({"name": new_name, "symbol": symbol})
+                        config["labels"][symbol] = new_name
+                        config["stock_info"][symbol] = new_name
+                        save_config(config)
+                        st.success(f"{new_name} を追加しました")
+                        st.rerun()
+                    else:
+                        st.warning("既に登録されています。")
+                else:
+                    st.warning("名前とコードを入力してください")
+
+        st.write("---")
+        st.subheader("当日のみの追加")
+        with st.expander("一時的な銘柄追加", expanded=True):
+            temp_name = st.text_input("日本語名（例：一時確認）")
+            temp_code = st.text_input("コード（例：9101）")
+            
+            if st.button("一時追加", type="secondary"):
+                if temp_name and temp_code:
+                    symbol = temp_code if "." in temp_code else f"{temp_code}.T"
                     if not any(s["symbol"] == symbol for s in config["stocks"]) and \
                        not any(s["symbol"] == symbol for s in st.session_state.today_stocks):
                         
-                        st.session_state.today_stocks.append({"name": new_name, "symbol": symbol})
-                        st.success(f"{new_name} を追加しました（ブラウザ更新まで保持）")
+                        st.session_state.today_stocks.append({"name": temp_name, "symbol": symbol})
+                        st.success(f"{temp_name} を追加しました（ブラウザ更新まで保持）")
                         st.rerun()
                     else:
                         st.warning("既にリストに含まれています。")
-                else:
-                    st.warning("名前とコードを入力してください")
 
         if st.session_state.today_stocks:
             st.write("---")
@@ -121,7 +142,6 @@ with col_mid:
         st.rerun()
 
     # --- 表示処理 ---
-    # 表示対象を統合
     items_to_display = []
     # 1. 常設指数
     for idx in config["indices"]:
@@ -133,6 +153,7 @@ with col_mid:
     for s in st.session_state.today_stocks:
         items_to_display.append({"name": s["name"], "symbol": s["symbol"]})
 
+    # カードの表示ループ
     for item in items_to_display:
         name = item["name"]
         symbol = item["symbol"]
@@ -152,28 +173,33 @@ with col_mid:
             elif diff_amount > 0:
                 color = "#000000" # プラスは黒
             else:
-                color = "#888888" # 変化なしはグレー
-                
+                color = "#888888" # 変化なし
+            
             display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
 
-        # 各銘柄の表示ブロック
-        st.markdown(f"### {name}")
-        
-        # レイアウトを整えるためのカラム配置
-        # スマホでの見やすさを考慮し、ラベルと値を少し余裕を持って配置
-        c_l1, c_v1 = st.columns([1, 3])
-        c_l1.markdown("**現在株価**")
-        c_v1.markdown(f"<div style='font-size: 60px; font-weight: bold; text-align: right;'>{current_price if current_price else '--':,}</div>", unsafe_allow_html=True)
-
-        c_l2, c_v2 = st.columns([1, 3])
-        c_l2.markdown("**前日比**")
-        c_v2.markdown(f"<div style='font-size: 35px; font-weight: bold; color: {color}; text-align: right;'>{display_diff}</div>", unsafe_allow_html=True)
-
-        c_l3, c_v3 = st.columns([1, 3])
-        c_l3.markdown("**前日終値**")
-        c_v3.markdown(f"<div style='font-size: 40px; font-weight: bold; color: #000; text-align: right;'>{prev_day_close if prev_day_close else '--':,}</div>", unsafe_allow_html=True)
-        
-        st.markdown("---")
+        # --- アプリ2のカード形式レイアウト ---
+        st.markdown(f"""
+        <div style="
+            background-color: #f0f2f6;
+            padding: 25px;
+            border-radius: 20px;
+            margin-bottom: 20px;
+            border: 2px solid #e0e0e0;
+            text-align: center;
+            font-family: sans-serif;
+        ">
+            <p style="font-size: 40px; margin: 0; color: #18610c; font-weight: bold;">{name}</p>
+            <p style="font-size: 60px; font-weight: bold; margin: 15px 0; color: #000;">
+                {current_price if current_price else '--':,}
+            </p>
+            <p style="font-size: 40px; font-weight: bold; margin: 8px 0; color: {color};">
+                {display_diff}
+            </p>
+            <p style="font-size: 30px; margin: 5px 0 0 0; color: #641075; font-weight: bold;">
+                前日終値：{prev_day_close if prev_day_close else '--':,}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
 with st.expander("詳細ログ (デバッグ用)"):
     st.write("現在の履歴:", config["history"])
