@@ -28,13 +28,6 @@ def load_config():
     else:
         return default_config
 
-def save_config(config):
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=4)
-    except Exception as e:
-        st.error(f"config.json への保存エラー: {e}")
-
 config = load_config()
 
 # --- セッション状態の初期化 ---
@@ -62,38 +55,17 @@ def get_stock_data(ticker_symbol):
 # --- 画面の構成 ---
 st.set_page_config(page_title="自分専用・株価監視", layout="wide")
 
-# 画面を中央に寄せるためのレイアウト
+# 画面全体を中央に寄せるためのレイアウト
 col_left, col_mid, col_right = st.columns([1, 4, 1])
 
 with col_mid:
     st.title("📈 株価監視ダッシュボード")
-    st.write("※PCで管理アプリを使い config.json を更新することで常設銘柄が反映されます。")
+    st.write("※常設銘柄の追加・削除はローカルアプリ（App2）で行ってください。")
     st.write("---")
 
-    # --- サイドバー：銘柄管理（追加・削除のみのシンプルな画面） ---
+    # --- サイドバー：当日のみの銘柄追加 ---
     with st.sidebar:
-        st.title("⚙️ 銘柄設定")
-        with st.expander("常設銘柄の追加・削除", expanded=True):
-            new_name = st.text_input("日本語名（例：トヨタ自動車）")
-            new_code = st.text_input("コード（例：7203）")
-            
-            if st.button("追加", type="primary"):
-                if new_name and new_code:
-                    symbol = new_code if "." in new_code else f"{new_code}.T"
-                    if symbol not in config["indices"] and symbol not in [s["symbol"] for s in config["stocks"]]:
-                        config["stocks"].append({"name": new_name, "symbol": symbol})
-                        config["labels"][symbol] = new_name
-                        config["stock_info"][symbol] = new_name
-                        save_config(config)
-                        st.success(f"{new_name} を追加しました")
-                        st.rerun()
-                    else:
-                        st.warning("既に登録されています。")
-                else:
-                    st.warning("名前とコードを入力してください")
-
-        st.write("---")
-        st.subheader("当日のみの追加")
+        st.title("⚙️ 当日の追加")
         with st.expander("一時的な銘柄追加", expanded=True):
             temp_name = st.text_input("日本語名（例：一時確認）")
             temp_code = st.text_input("コード（例：9101）")
@@ -109,6 +81,8 @@ with col_mid:
                         st.rerun()
                     else:
                         st.warning("既にリストに含まれています。")
+                else:
+                    st.warning("名前とコードを入力してください")
 
         if st.session_state.today_stocks:
             st.write("---")
@@ -153,7 +127,6 @@ with col_mid:
     for s in st.session_state.today_stocks:
         items_to_display.append({"name": s["name"], "symbol": s["symbol"]})
 
-    # カードの表示ループ
     for item in items_to_display:
         name = item["name"]
         symbol = item["symbol"]
@@ -177,7 +150,7 @@ with col_mid:
             
             display_diff = f"{diff_amount:,.0f} ({diff_percent:+.2f}%)"
 
-        # --- アプリ2のカード形式レイアウト ---
+        # --- カード表示 ---
         st.markdown(f"""
         <div style="
             background-color: #f0f2f6;
