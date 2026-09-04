@@ -38,15 +38,17 @@ if "today_stocks" not in st.session_state:
 def get_stock_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
-        # 直近2日分を取得
-        df = ticker.history(period="2d")
+        # 【修正箇所】period="2d" から "5d" に変更
+        # これにより、市場閉鎖時でも過去の確定した価格を取得可能になります
+        df = ticker.history(period="5d")
         if len(df) >= 2:
             current_price = round(df['Close'].iloc[-1], 0)
             prev_day_close = round(df['Close'].iloc[-2], 0)
             return current_price, prev_day_close
         elif len(df) == 1:
+            # データが1件しか取得できない特殊なケース
             price = round(df['Close'].iloc[-1], 0)
-            return price, price
+            return price, None # 前日終値は取得不可としてNoneを返す
         else:
             return None, None
     except Exception:
@@ -60,7 +62,7 @@ col_left, col_mid, col_right = st.columns([1, 4, 1])
 
 with col_mid:
     st.title("📈 株価監視ダッシュボード")
-    st.write("※常設銘柄の追加・削除はローカルアプリ（App2）で行ってください。")
+    st.write("※PCで管理アプリを使い config.json を更新することで常設銘柄が反映されます。")
     st.write("---")
 
     # --- サイドバー：当日のみの銘柄追加 ---
@@ -137,6 +139,7 @@ with col_mid:
         color = "#000000"
         display_diff = "-"
         
+        # 前日終値が取得できた場合のみ差分を計算
         if current_price is not None and prev_day_close is not None:
             diff_amount = current_price - prev_day_close
             diff_percent = (diff_amount / prev_day_close) * 100
